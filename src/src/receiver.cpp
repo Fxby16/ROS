@@ -1,33 +1,32 @@
-#include <memory>
-
-#include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/string.hpp"
+#include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/int32_multi_array.hpp>
 
-using std::placeholders::_1;
+#include <memory>
 
-class MinimalSubscriber : public rclcpp::Node
+class Receiver : public rclcpp::Node
 {
 public:
-    MinimalSubscriber()
-        : Node("minimal_subscriber")
+    Receiver()
+        : Node("receiver")
     {
-        sub_ = this->create_subscription<std_msgs::msg::Int32MultiArray>(
-            "pickingPoint/coordinates", 10, std::bind(&MinimalSubscriber::topic_callback, this, _1));
+        m_Sub = this->create_subscription<std_msgs::msg::Int32MultiArray>(
+            "pickingPoint/coordinates", 10, std::bind(&Receiver::TopicCallback, this, std::placeholders::_1));
     }
 
 private:
-    void topic_callback(const std_msgs::msg::Int32MultiArray &msg) const
+    void TopicCallback(const std_msgs::msg::Int32MultiArray& msg) const
     {
         RCLCPP_INFO(this->get_logger(), "(%d, %d)", msg.data[0], msg.data[1]);
     }
-    rclcpp::Subscription<std_msgs::msg::Int32MultiArray>::SharedPtr sub_;
+
+    rclcpp::Subscription<std_msgs::msg::Int32MultiArray>::SharedPtr m_Sub;
 };
 
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<MinimalSubscriber>());
+    rclcpp::spin(std::make_shared<Receiver>());
     rclcpp::shutdown();
     return 0;
 }

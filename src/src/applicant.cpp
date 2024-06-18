@@ -3,40 +3,58 @@
 #include <image_transport/image_transport.hpp>
 #include <opencv2/opencv.hpp>
 #include <cv_bridge/cv_bridge.h>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
-class ImagePublisherNode : public rclcpp::Node
+std::string GetProjectRoot()
+{
+    std::string package_path = ament_index_cpp::get_package_share_directory("ROS_PickingPoint");
+    
+    int slash_count = 0;
+
+    for(int i = package_path.size() - 1; i >= 0; i--)
+    {
+        if(package_path[i] == '/')
+        {
+            slash_count++;
+        }
+
+        if(slash_count == 4)
+        {
+            return package_path.substr(0, i);
+        }
+    }
+    
+    return "";
+}
+
+class Applicant : public rclcpp::Node
 {
 public:
-    static std::shared_ptr<ImagePublisherNode> create()
+    static std::shared_ptr<Applicant> Create()
     {
-        auto node = std::make_shared<ImagePublisherNode>();
-        node->init();
+        auto node = std::make_shared<Applicant>();
+        node->Init();
         return node;
     }
 
-    ImagePublisherNode() : Node("image_publisher") {}
+    Applicant() : Node("applicant") {}
 
-    void init()
+    void Init()
     {
         // Initialize the image transport publisher
         image_transport::ImageTransport it(shared_from_this());
-        pub_ = it.advertise("camera/image", 10);
+        m_Pub = it.advertise("camera/image", 10);
 
-        // Create a timer to periodically publish images
-        /*timer_ = this->create_wall_timer(
-          std::chrono::milliseconds(100), std::bind(&ImagePublisherNode::timer_callback, this));
-        */
-
-        sendImage();
+        SendImage();
     }
 
-    void sendImage()
+    void SendImage()
     {
-        // Load an image using OpenCV (replace this with your actual image loading code)
-        cv::Mat image = cv::imread("/mnt/574cdeb8-9b3d-49a4-aa16-95589af03bdf/ROS/src/pickingPoint/assets/8901.png", cv::IMREAD_COLOR);
+        // Load an image using OpenCV
+        cv::Mat image = cv::imread(GetProjectRoot() + "/src/pickingPoint/assets/8901.png", cv::IMREAD_COLOR);
 
         // Check if the image is loaded correctly
-        if (image.empty())
+        if(image.empty())
         {
             RCLCPP_ERROR(this->get_logger(), "Failed to load image!");
             return;
@@ -48,17 +66,16 @@ public:
         sensor_msgs::msg::Image::SharedPtr msg = cv_bridge::CvImage(header, "bgr8", image).toImageMsg();
 
         // Publish the image
-        pub_.publish(msg);
+        m_Pub.publish(msg);
     }
 
-    image_transport::Publisher pub_;
-    rclcpp::TimerBase::SharedPtr timer_;
+    image_transport::Publisher m_Pub;
 };
 
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(ImagePublisherNode::create());
+    rclcpp::spin(Applicant::Create());
     rclcpp::shutdown();
     return 0;
 }

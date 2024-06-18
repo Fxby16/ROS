@@ -69,17 +69,17 @@ cv::Point PickingPoint::Process()
             angle = -angle;
         }
 
-#ifdef DRAWDEBUG
-        // Draw the rectangle and label on the image
-        cv::Point2f pt[4];
-        rect.points(pt);
-        for (int j = 0; j < 4; j++)
-            cv::line(m_Image, pt[j], pt[(j + 1) % 4], cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
-#endif
+        #ifdef DRAWDEBUG
+            // Draw the rectangle and label on the image
+            cv::Point2f pt[4];
+            rect.points(pt);
+            for (int j = 0; j < 4; j++)
+                cv::line(m_Image, pt[j], pt[(j + 1) % 4], cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
+        #endif
 
-#ifdef DEBUG
-        printf("Rotation angle %.2f\n", angle);
-#endif
+        #ifdef DEBUG
+            printf("Rotation angle %.2f\n", angle);
+        #endif
     }
 
     cv::Mat M, rotated;
@@ -172,10 +172,10 @@ if (m_Cropped.rows == 0 || m_Cropped.cols == 0)
     // Step 2: Place m_Cropped in this new image at the position corresponding to the original rect
     cv::Rect original_rect(xValue, yValue, rect_size.width, rect_size.height);
 
-#ifdef DEBUG
-    fprintf(stderr, "Original Rect: %d %d %d %d\n", original_rect.x, original_rect.y, original_rect.width, original_rect.height);
-    fprintf(stderr, "Original Size: %d %d\n", original_size.width, original_size.height);
-#endif
+    #ifdef DEBUG
+        fprintf(stderr, "Original Rect: %d %d %d %d\n", original_rect.x, original_rect.y, original_rect.width, original_rect.height);
+        fprintf(stderr, "Original Size: %d %d\n", original_size.width, original_size.height);
+    #endif
 
     m_Cropped.copyTo(new_image(original_rect));
 
@@ -192,23 +192,20 @@ if (m_Cropped.rows == 0 || m_Cropped.cols == 0)
 
     cv::Point newPickingPoint = FindColor(cv::Scalar(0, 0, 255), reverted);
 
-    //fprintf(stderr, "Picking Point: %d %d\n", newPickingPoint.x, newPickingPoint.y);
-    
-    cv::circle(reverted, newPickingPoint, 2, cv::Scalar(0, 255, 0), -1);
-   // cv::imwrite(std::string("output/") + std::string("result_") + path.substr(path.find_last_of("/") + 1), reverted);
-    //cv::imshow("Image", reverted);
-    //cv::imwrite(std::string("output/") + path.substr(path.find_last_of("/")), m_Cropped);
+    #ifdef DEBUG
+        fprintf(stderr, "Picking Point: %d %d\n", newPickingPoint.x, newPickingPoint.y);
+        
+        cv::circle(reverted, newPickingPoint, 2, cv::Scalar(0, 255, 0), -1);
+        cv::imwrite(std::string("output/") + std::strin g("result_") + path.substr(path.find_last_of("/") + 1), reverted);
+        cv::imshow("Image", reverted);
+        cv::imwrite(std::string("output/") + path.substr(path.find_last_of("/")), m_Cropped);
 
-#ifdef DEBUG
-    fprintf(stderr, "Writed Image, Destroying Windows... \n");
-#endif
+        fprintf(stderr, "Writed Image, Destroying Windows... \n");
+        cv::waitKey(0); 
+        cv::destroyAllWindows();
 
-    //cv::waitKey(0); 
-    cv::destroyAllWindows();
-
-#ifdef DEBUG
-    fprintf(stderr, "Destroyed All Windows... \n");
-#endif
+        fprintf(stderr, "Destroyed All Windows... \n");
+    #endif
 
     return newPickingPoint;
 }
