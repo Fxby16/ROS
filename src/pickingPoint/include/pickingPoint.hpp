@@ -4,6 +4,22 @@
 
 #include <vector>
 
+struct PickingPointInfo
+{
+    cv::Point point;
+    unsigned int opening[2];
+    float angle[2];
+
+    PickingPointInfo()
+    {
+        point = cv::Point(0, 0);
+        opening[0] = 0;
+        opening[1] = 0;
+        angle[0] = 0;
+        angle[1] = 0;
+    }
+};
+
 class PickingPoint
 {
 public:
@@ -12,7 +28,7 @@ public:
     PickingPoint(const cv::Mat& img);
     ~PickingPoint() = default;
 
-    cv::Point Process();
+    PickingPointInfo Process();
 
     void ExtractCells(size_t cell_size, cv::Mat img);
     void HandleCell(std::pair<double, cv::Rect>& cell, int row, int col);

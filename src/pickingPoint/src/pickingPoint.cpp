@@ -26,7 +26,7 @@ PickingPoint::PickingPoint(const cv::Mat& img)
     }
 }
 
-cv::Point PickingPoint::Process()
+PickingPointInfo PickingPoint::Process()
 {
     cv::Mat gray, binary;
 
@@ -44,48 +44,49 @@ cv::Point PickingPoint::Process()
 
     cv::RotatedRect rect;
 
-    for(size_t i = 0; i < contours.size(); i++)
-    {
-        // Calculate the area of each contour
-        double area = contourArea(contours[i]);
+    double area = contourArea(contours[0]);
 
-        // Get the rotated bounding box
-        rect = cv::minAreaRect(contours[i]);
-        cv::Point2f box[4];
-        rect.points(box);
+    // Get the rotated bounding box
+    rect = cv::minAreaRect(contours[0]);
+    cv::Point2f box[4];
+    rect.points(box);
 
-        // Retrieve the key parameters of the rotated bounding box
-        cv::Point2f center = rect.center;
-        int width = rect.size.width;
-        int height = rect.size.height;
-        float angle = rect.angle;
+    // Retrieve the key parameters of the rotated bounding box
+    cv::Point2f center = rect.center;
+    int width = rect.size.width;
+    int height = rect.size.height;
+    float angle = rect.angle;
 
-        if(width < height)
-        {
-            angle = 90 - angle;
-        }
-        else
-        {
-            angle = -angle;
-        }
-
-        #ifdef DRAWDEBUG
-            // Draw the rectangle and label on the image
-            cv::Point2f pt[4];
-            rect.points(pt);
-            for (int j = 0; j < 4; j++)
-                cv::line(m_Image, pt[j], pt[(j + 1) % 4], cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
-        #endif
-
-        #ifdef DEBUG
-            printf("Rotation angle %.2f\n", angle);
-        #endif
+    float requiredAngle = rect.angle;
+    if (rect.size.width < rect.size.height) {
+        requiredAngle += 90;
     }
+
+    if(width < height)
+    {
+        angle = 90 - angle;
+    }
+    else
+    {
+        angle = -angle;
+    }
+
+    #ifdef DRAWDEBUG
+        // Draw the rectangle and label on the image
+        cv::Point2f pt[4];
+        rect.points(pt);
+        for (int j = 0; j < 4; j++)
+            cv::line(m_Image, pt[j], pt[(j + 1) % 4], cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
+    #endif
+
+    #ifdef DEBUG
+        printf("Rotation angle %.2f\n", angle);
+    #endif
 
     cv::Mat M, rotated;
 
     // get angle and size from the bounding box
-    float angle = rect.angle;
+    angle = rect.angle;
     cv::Size rect_size = rect.size;
     
     // thanks to http://felix.abecassis.me/2011/10/opencv-rotation-deskewing/
@@ -107,7 +108,7 @@ cv::Point PickingPoint::Process()
 #endif
 
 if (m_Cropped.rows == 0 || m_Cropped.cols == 0)
-    return cv::Point(-1, -1);
+    return PickingPointInfo();
 
     ExtractCells(5, m_Cropped);
 
@@ -147,10 +148,21 @@ if (m_Cropped.rows == 0 || m_Cropped.cols == 0)
     cv::circle(m_Cropped, x1, 2, cv::Scalar(255, 0, 0), -1);
 #endif
 
+    unsigned int requiredOpening1; // opening for the shortest side
+    unsigned int requiredOpening2; // opening for the longest side
+    float requiredAngle1 = requiredAngle; // angle for the shortest opening
+    float requiredAngle2 = requiredAngle; // angle for the longest opening
+
     if (std::abs(y0.y - y1.y) > std::abs(x0.x - x1.x)) {
         pickPoint = cv::Point((x0.x + x1.x) / 2, pickPoint.y);
+        requiredOpening1 = std::abs(x0.x - x1.x) + 6;
+        requiredOpening2 = std::abs(y0.y - y1.y) + 6;
+        requiredAngle2 += 90;
     } else {
         pickPoint = cv::Point(pickPoint.x, (y0.y + y1.y) / 2);
+        requiredOpening1 = std::abs(y0.y - y1.y) + 6;
+        requiredOpening2 = std::abs(x0.x - x1.x) + 6;
+        requiredAngle1 += 90;
     }
 
     cv::circle(m_Cropped, pickPoint, 1, cv::Scalar(0, 0, 255), -1);
@@ -207,7 +219,14 @@ if (m_Cropped.rows == 0 || m_Cropped.cols == 0)
         fprintf(stderr, "Destroyed All Windows... \n");
     #endif
 
-    return newPickingPoint;
+    PickingPointInfo info;
+    info.point = newPickingPoint;
+    info.opening[0] = requiredOpening1;
+    info.opening[1] = requiredOpening2;
+    info.angle[0] = requiredAngle1;
+    info.angle[1] = requiredAngle2;
+
+    return info;
 }
 
 cv::Point PickingPoint::FindColor(cv::Scalar color, cv::Mat& image) 
