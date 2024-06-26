@@ -12,3 +12,8 @@ Open 3 terminals and run one command for each terminal (the applicant should be 
 Applicant: `ros2 run ROS_PickingPoint applicant`  
 Picking Point Handler: `ros2 run ROS_PickingPoint pickingPointHandler`  
 Receiver: `ros2 run ROS_PickingPoint receiver`  
+
+## For Arch
+Install these deps, cuz ros2 do not get it by default
+
+`sudo pacman -S fast_float cgns netcdf libharu adios2 liblas pdal boost ospray cli11`
