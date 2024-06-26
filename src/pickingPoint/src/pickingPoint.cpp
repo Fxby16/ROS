@@ -3,27 +3,31 @@
 #include <vector>
 #include <cmath>
 #include <limits>
+#include <iostream>
 
-PickingPoint::PickingPoint(const std::string& path)
+PickingPoint::PickingPoint(const std::string& path, const std::string& depth_path)
     : path(path)
 {
     m_Image = cv::imread(path, cv::IMREAD_COLOR);
+    m_DepthMap = cv::imread(depth_path, cv::IMREAD_UNCHANGED);
 
     if(m_Image.empty())
     {
         perror("No image data\n");
+        return;
+    }
+
+    if(m_DepthMap.empty())
+    {
+        perror("No depth data\n");
         return;
     }
 }
 
-PickingPoint::PickingPoint(const cv::Mat& img)
-    : m_Image(img), path("")
+PickingPoint::PickingPoint(cv::Mat& image, cv::Mat& depth)
 {
-    if(m_Image.empty())
-    {
-        perror("No image data\n");
-        return;
-    }
+    m_Image = image.clone();
+    m_DepthMap = depth.clone();
 }
 
 PickingPointInfo PickingPoint::Process()
@@ -51,42 +55,15 @@ PickingPointInfo PickingPoint::Process()
     cv::Point2f box[4];
     rect.points(box);
 
-    // Retrieve the key parameters of the rotated bounding box
-    cv::Point2f center = rect.center;
-    int width = rect.size.width;
-    int height = rect.size.height;
-    float angle = rect.angle;
+    cv::Mat M, rotated, rotated2;
 
+    // get angle and size from the bounding box
+    float angle = rect.angle;
     float requiredAngle = rect.angle;
     if (rect.size.width < rect.size.height) {
         requiredAngle += 90;
     }
-
-    if(width < height)
-    {
-        angle = 90 - angle;
-    }
-    else
-    {
-        angle = -angle;
-    }
-
-    #ifdef DRAWDEBUG
-        // Draw the rectangle and label on the image
-        cv::Point2f pt[4];
-        rect.points(pt);
-        for (int j = 0; j < 4; j++)
-            cv::line(m_Image, pt[j], pt[(j + 1) % 4], cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
-    #endif
-
-    #ifdef DEBUG
-        printf("Rotation angle %.2f\n", angle);
-    #endif
-
-    cv::Mat M, rotated;
-
-    // get angle and size from the bounding box
-    angle = rect.angle;
+    
     cv::Size rect_size = rect.size;
     
     // thanks to http://felix.abecassis.me/2011/10/opencv-rotation-deskewing/
@@ -98,24 +75,27 @@ PickingPointInfo PickingPoint::Process()
     M = cv::getRotationMatrix2D(rect.center, angle, 1.0);
 
     // perform the affine transformation
-    cv::warpAffine(m_Image, rotated, M, m_Image.size(), cv::INTER_CUBIC);
+    cv::warpAffine(m_Image, rotated, M, m_Image.size(), cv::INTER_NEAREST);
 
     // crop the resulting image
     cv::getRectSubPix(rotated, rect_size, rect.center, m_Cropped);
 
-#ifdef DEBUG
-    fprintf(stderr, "Extracting Cells...\n");
-#endif
+    cv::warpAffine(m_DepthMap, rotated2, M, m_DepthMap.size(), cv::INTER_NEAREST);
 
-if (m_Cropped.rows == 0 || m_Cropped.cols == 0)
-    return PickingPointInfo();
+    // crop the resulting image
+    cv::getRectSubPix(rotated2, rect_size, rect.center, m_DepthCropped);
 
-    ExtractCells(5, m_Cropped);
+    if (m_Cropped.rows == 0 || m_Cropped.cols == 0)
+        return PickingPointInfo();
 
-#ifdef DEBUG
-    fprintf(stderr, "Extracted Cells\n");
-#endif
+    // Extract cells
+    int cell_size = std::log10(m_Cropped.rows * m_Cropped.cols) * 2;
 
+    printf("Cell Size: %d\n", cell_size);
+
+    ExtractCells(cell_size, m_Cropped);
+
+    // Iterate over all the cells to assign a score to each cell, in order to find the optimal cell
     for(int i = 0; i < m_Cells.size(); i++)
     {
         for(int j = 0; j < m_Cells[i].size(); j++)
@@ -124,42 +104,48 @@ if (m_Cropped.rows == 0 || m_Cropped.cols == 0)
         }
     }
 
-    std::pair<size_t, size_t> min_cell = FindMinCell();
+    //10 : 15 = cell_size : x
+    int cells_to_get = std::max((15 * cell_size) / 10, 1);
 
-    cv::Rect r = m_Cells[min_cell.first][min_cell.second].second;
+    // Finding the first 10 cells with the lowest score
+    std::vector<PickingPoint::Cell> min_cell_list = FindMinCell(cells_to_get);
 
-#ifdef DEBUG
-    fprintf(stderr, "Writing Image...\n");
-#endif
+    cv::Rect temp_rect = m_Cells[min_cell_list[0].y][min_cell_list[0].x].second;
+    cv::Point temp = cv::Point(temp_rect.x + temp_rect.width / 2, temp_rect.y + temp_rect.height / 2);
+    
+    // Sorting the cells by the minimum depth, to find the highest point
+    std::sort(min_cell_list.begin(), min_cell_list.end(), [this](const struct Cell& a, const struct Cell& b) -> bool {
+        return GetMinDepth(m_Cells[a.y][a.x].second, a.y, a.x) < GetMinDepth(m_Cells[b.y][b.x].second, b.y, b.x);
+    });
 
     DrawHeatMap(path); 
 
+    cv::Rect r = m_Cells[min_cell_list[0].y][min_cell_list[0].x].second;
+
     cv::Point pickPoint = cv::Point(r.x + r.width / 2, r.y + r.height / 2);
 
-    cv::Point y0 = Raycast(pickPoint, cv::Point(0, 1)); // Sopra
-    cv::Point y1 = Raycast(pickPoint, cv::Point(0, -1)); //sotto
-    cv::Point x0 = Raycast(pickPoint, cv::Point(1, 0)); // destra
-    cv::Point x1 = Raycast(pickPoint, cv::Point(-1, 0));    // Sinis
+    cv::circle(m_Cropped, pickPoint, 2, cv::Scalar(0, 255, 0), -1);
 
-#ifdef DRAWDEBUG
-    cv::circle(m_Cropped, y0, 2, cv::Scalar(255, 0, 0), -1);
-    cv::circle(m_Cropped, y1, 2, cv::Scalar(255, 0, 0), -1);
-    cv::circle(m_Cropped, x0, 2, cv::Scalar(255, 0, 0), -1);
-    cv::circle(m_Cropped, x1, 2, cv::Scalar(255, 0, 0), -1);
-#endif
+    cv::Point y0 = Raycast(pickPoint, cv::Point(0, 1)); // up
+    cv::Point y1 = Raycast(pickPoint, cv::Point(0, -1)); // down
+    cv::Point x0 = Raycast(pickPoint, cv::Point(1, 0)); // right
+    cv::Point x1 = Raycast(pickPoint, cv::Point(-1, 0)); // left
 
     unsigned int requiredOpening1; // opening for the shortest side
     unsigned int requiredOpening2; // opening for the longest side
     float requiredAngle1 = requiredAngle; // angle for the shortest opening
     float requiredAngle2 = requiredAngle; // angle for the longest opening
 
+    y0 = Raycast(pickPoint, cv::Point(0, 1)); // Sopra
+    y1 = Raycast(pickPoint, cv::Point(0, -1)); //sotto
+    x0 = Raycast(pickPoint, cv::Point(1, 0)); // destra
+    x1 = Raycast(pickPoint, cv::Point(-1, 0));    // Sinis
+
     if (std::abs(y0.y - y1.y) > std::abs(x0.x - x1.x)) {
-        pickPoint = cv::Point((x0.x + x1.x) / 2, pickPoint.y);
         requiredOpening1 = std::abs(x0.x - x1.x) + 6;
         requiredOpening2 = std::abs(y0.y - y1.y) + 6;
         requiredAngle2 += 90;
     } else {
-        pickPoint = cv::Point(pickPoint.x, (y0.y + y1.y) / 2);
         requiredOpening1 = std::abs(y0.y - y1.y) + 6;
         requiredOpening2 = std::abs(x0.x - x1.x) + 6;
         requiredAngle1 += 90;
@@ -167,11 +153,12 @@ if (m_Cropped.rows == 0 || m_Cropped.cols == 0)
 
     cv::circle(m_Cropped, pickPoint, 1, cv::Scalar(0, 0, 255), -1);
 
-    cv::Mat M_inv, reverted;
+    cv::Mat M_inv, reverted, depth_reverted;
     cv::Size original_size = m_Image.size();
 
     // Step 1: Create a new image of the original size
     cv::Mat new_image = cv::Mat::zeros(original_size, m_Cropped.type());
+    cv::Mat new_image2 = cv::Mat::zeros(original_size, m_Cropped.type());
 
     // Get the image size
     int imgWidth = new_image.cols;
@@ -184,18 +171,13 @@ if (m_Cropped.rows == 0 || m_Cropped.cols == 0)
     // Step 2: Place m_Cropped in this new image at the position corresponding to the original rect
     cv::Rect original_rect(xValue, yValue, rect_size.width, rect_size.height);
 
-    #ifdef DEBUG
-        fprintf(stderr, "Original Rect: %d %d %d %d\n", original_rect.x, original_rect.y, original_rect.width, original_rect.height);
-        fprintf(stderr, "Original Size: %d %d\n", original_size.width, original_size.height);
-    #endif
-
     m_Cropped.copyTo(new_image(original_rect));
 
     // Step 3: Compute the inverse of M
     cv::invertAffineTransform(M, M_inv);
 
     // Step 4: Apply cv::warpAffine with the inverted matrix
-    cv::warpAffine(new_image, reverted, M_inv, original_size, cv::INTER_NEAREST, cv::BORDER_CONSTANT, cv::Scalar(0));
+    cv::warpAffine(new_image, reverted, M_inv, original_size, cv::INTER_NEAREST, 0, cv::Scalar(0));
 
     // Step 5: If the width and height were swapped, swap them back
     if (rect.angle < -45.0f) {
@@ -204,27 +186,11 @@ if (m_Cropped.rows == 0 || m_Cropped.cols == 0)
 
     cv::Point newPickingPoint = FindColor(cv::Scalar(0, 0, 255), reverted);
 
-    #ifdef DEBUG
-        fprintf(stderr, "Picking Point: %d %d\n", newPickingPoint.x, newPickingPoint.y);
-        
-        cv::circle(reverted, newPickingPoint, 2, cv::Scalar(0, 255, 0), -1);
-        cv::imwrite(std::string("output/") + std::strin g("result_") + path.substr(path.find_last_of("/") + 1), reverted);
-        cv::imshow("Image", reverted);
-        cv::imwrite(std::string("output/") + path.substr(path.find_last_of("/")), m_Cropped);
-
-        fprintf(stderr, "Writed Image, Destroying Windows... \n");
-        cv::waitKey(0); 
-        cv::destroyAllWindows();
-
-        fprintf(stderr, "Destroyed All Windows... \n");
-    #endif
-
-    PickingPointInfo info;
-    info.point = newPickingPoint;
-    info.opening[0] = requiredOpening1;
-    info.opening[1] = requiredOpening2;
-    info.angle[0] = requiredAngle1;
-    info.angle[1] = requiredAngle2;
+    PickingPointInfo info = {
+        .point = newPickingPoint,
+        .opening = {requiredOpening1, requiredOpening2},
+        .angle = {requiredAngle1, requiredAngle2}
+    };
 
     return info;
 }
@@ -234,11 +200,6 @@ cv::Point PickingPoint::FindColor(cv::Scalar color, cv::Mat& image)
     for (int i = 0; i < image.rows; i++) {
         for (int j = 0; j < image.cols; j++) {
             cv::Vec3b pixel = image.at<cv::Vec3b>(i, j);
-            
-#ifdef DEBUG
-            if(pixel[0] != 0 && pixel[1] != 0 && pixel[2] != 0)
-                fprintf(stderr, "Color: %d %d %d\n", pixel[0], pixel[1], pixel[2]);
-#endif
             
             if (pixel[0] == color[0] && pixel[1] == color[1] && pixel[2] == color[2]) {
                 return cv::Point(j, i);
@@ -273,24 +234,15 @@ void PickingPoint::ExtractCells(size_t cell_size, cv::Mat img)
         std::vector<std::pair<double, cv::Rect>> v;
 
         for (x = 0; x < width - cell_size; x += cell_size) {
-            #ifdef DEBUG
-                fprintf(stderr, "Looping 1 %d %d %d %d %d\n", height - cell_size, height, cell_size, x, y);
-            #endif
             int k = x*y + x;
             cv::Rect grid_rect(x, y, cell_size, cell_size);
             v.push_back({0, grid_rect});
-            #ifdef DRAWDEBUG
-                cv::rectangle(img, grid_rect, cv::Scalar(0, 255, 0), 1);
-            #endif
         }
 
         if (width - x > 0) {
             int k = x*y + x;
             cv::Rect grid_rect(x, y, width - x, cell_size);
             v.push_back({0, grid_rect});
-            #ifdef DRAWDEBUG
-                cv::rectangle(img, grid_rect, cv::Scalar(0, 255, 0), 1);
-            #endif
         }
 
         m_Cells.push_back(v);
@@ -301,28 +253,27 @@ void PickingPoint::ExtractCells(size_t cell_size, cv::Mat img)
         std::vector<std::pair<double, cv::Rect>> v;
 
         for (x = 0; x < width - cell_size; x += cell_size) {
-            #ifdef DEBUG
-                fprintf(stderr, "Looping 2\n");
-            #endif
             int k = x*y + x;
             cv::Rect grid_rect(x, y, cell_size, height - y);
             v.push_back({0, grid_rect});
-            #ifdef DRAWDEBUG
-                cv::rectangle(img, grid_rect, cv::Scalar(0, 255, 0), 1);
-            #endif
         }
 
         if (width - x > 0) {
             int k = x*y + x;
             cv::Rect grid_rect(x, y, width - x, height - y);
             v.push_back({0, grid_rect});
-#ifdef DRAWDEBUG
-            cv::rectangle(img, grid_rect, cv::Scalar(0, 255, 0), 1);
-#endif
-
         }
 
         m_Cells.push_back(v);
+    }
+    
+    m_CellsCache.resize(m_Cells.size());
+    m_DepthCache.resize(m_Cells.size());
+
+    for(int i = 0; i < m_Cells.size(); i++)
+    {
+        m_CellsCache[i].assign(m_Cells[i].size(), std::numeric_limits<unsigned int>::max());
+        m_DepthCache[i].assign(m_Cells[i].size(), std::numeric_limits<unsigned int>::max());
     }
 }
 
@@ -351,6 +302,7 @@ cv::Point PickingPoint::Raycast(cv::Point startingPoint, cv::Point direction) {
     cv::Point currentPoint = startingPoint;
     cv::Point savedPoint = startingPoint;
 
+
     bool prev_color_black;
     cv::Vec3b color = m_Cropped.at<cv::Vec3b>(currentPoint);
 
@@ -366,21 +318,12 @@ cv::Point PickingPoint::Raycast(cv::Point startingPoint, cv::Point direction) {
     while (currentPoint.x >= 0 && currentPoint.x < m_Cropped.cols && currentPoint.y >= 0 && currentPoint.y < m_Cropped.rows) {
         color = m_Cropped.at<cv::Vec3b>(currentPoint);
 
-#ifdef DEBUG
-        //fprintf(stderr, "Color: %d %d %d\n", color[0], color[1], color[2]);
-#endif
-
         if (color[0] == 0 && color[1] == 0 && color[2] == 0) {
             if(prev_color_black == false)
             {
                 savedPoint = currentPoint;
             }
             prev_color_black = true;
-            
-#ifdef DEBUG
-            //perror("Saved point\n");
-#endif
-
         }
         else
         {
@@ -391,10 +334,7 @@ cv::Point PickingPoint::Raycast(cv::Point startingPoint, cv::Point direction) {
     }
 
     if (!prev_color_black) {
-#ifdef DEBUG
-        fprintf(stderr, "Saved Point Outside\n");
-#endif
-        savedPoint = currentPoint;
+        savedPoint = currentPoint - direction;
     }
     
     return savedPoint;
@@ -416,9 +356,6 @@ void PickingPoint::DrawHeatMap(const std::string& path) {
         }
     }
 
-#ifdef DEBUG
-    fprintf(stderr, "Writing Heatmap... %s\n", (std::string("output/") + std::string("heatmap_") + path.substr(path.find_last_of("/") + 1)).c_str());
-#endif
     //cv::imwrite(std::string("output/") + std::string("heatmap_") + path.substr(path.find_last_of("/") + 1), m_HeatMap);
 }
 
@@ -427,7 +364,7 @@ void PickingPoint::DrawHeatMap(const std::string& path) {
 // Ottimizzato: 2.514s
 void PickingPoint::HandleCell(std::pair<double, cv::Rect>& cell, int row, int col)
 {
-    if(GetPixelCount(m_Cells[row][col].second) == 0)
+    if(GetPixelCount(m_Cells[row][col].second, row, col) == 0)
     {
         cell.first = std::numeric_limits<double>::max();
         return;
@@ -437,9 +374,39 @@ void PickingPoint::HandleCell(std::pair<double, cv::Rect>& cell, int row, int co
     {
         for(int j = 0; j < m_Cells[i].size(); j++)
         {
-            cell.first += GetPixelCount(m_Cells[i][j].second) * GetDistance(row, col, i, j);
+            cell.first += GetPixelCount(m_Cells[i][j].second, i, j) * GetDistance(row, col, i, j);
         }
     }
+
+    //cell.first /= std::max((double) GetMinDepth(m_Cells[row][col].second, row, col), 1.0);
+}
+
+unsigned int PickingPoint::GetMinDepth(cv::Rect& rect, size_t row, size_t col) {
+
+    if(m_DepthCache[row][col] != std::numeric_limits<unsigned int>::max())
+    {
+        return m_DepthCache[row][col];
+    }
+
+    float min_val = std::numeric_limits<float>::max(), max_val = 0;
+
+    for(int i = rect.y; i < rect.y + rect.height; i++)
+    {
+        for(int j = rect.x; j < rect.x + rect.width; j++)
+        {
+            float value = m_DepthCropped.at<cv::Vec3f>(i, j)[2];
+
+            if(value < 250){
+                value = 1000;
+            }
+
+            m_DepthCache[row][col] += value;
+        }
+    }
+
+    m_DepthCache[row][col] /= (rect.width * rect.height);
+
+    return m_DepthCache[row][col];
 }
 
 double PickingPoint::GetDistance(int x1, int y1, int x2, int y2)
@@ -452,15 +419,20 @@ double PickingPoint::GetDistance(int x1, int y1, int x2, int y2)
     return std::sqrt(std::pow(std::abs(x1 - x2), 2) + std::pow(std::abs(y1 - y2), 2)); //pitagora
 }
 
-unsigned int PickingPoint::GetPixelCount(cv::Rect& rect)
+unsigned int PickingPoint::GetPixelCount(cv::Rect& rect, size_t row, size_t col)
 {
+    if(m_CellsCache[row][col] != std::numeric_limits<unsigned int>::max())
+    {
+        return m_CellsCache[row][col];
+    }
+
     unsigned int count = 0;
 
     for(int i = rect.y; i < rect.y + rect.height; i++)
     {
         for(int j = rect.x; j < rect.x + rect.width; j++)
         {
-            cv::Vec3b color = m_Cropped.at<cv::Vec3b>(cv::Point(j, i));
+            cv::Vec3b color = m_Cropped.at<cv::Vec3b>(i, j);
             if(color[0] != 0 && color[1] != 0 && color[2] != 0)
             {
                 count++;
@@ -468,26 +440,33 @@ unsigned int PickingPoint::GetPixelCount(cv::Rect& rect)
         }
     }
 
+    m_CellsCache[row][col] = count;
+
     return count;
 }
 
-std::pair<size_t, size_t> PickingPoint::FindMinCell()
+std::vector<PickingPoint::Cell> PickingPoint::FindMinCell(unsigned int n)
 {
-    double min_value = std::numeric_limits<double>::max();
-    size_t x, y; 
+    std::vector<PickingPoint::Cell> cells;
 
-    for(size_t i = 0; i < m_Cells.size(); i++)
+    for(int i = 0; i < m_Cells.size(); i++)
     {
-        for(size_t j = 0; j < m_Cells[i].size(); j++)
+        for(int j = 0; j < m_Cells[i].size(); j++)
         {
-            if(m_Cells[i][j].first < min_value)
-            {
-                min_value = m_Cells[i][j].first;
-                x = j;
-                y = i;
-            }
+            cells.push_back({m_Cells[i][j].first, j, i});
         }
     }
 
-    return {y, x};
+    // Sort the cells based on their value
+    std::sort(cells.begin(), cells.end(), [](const Cell& a, const Cell& b) {
+        return a.value < b.value;
+    });
+
+    // Keep only the top n cells, if n is less than the size of cells
+    if(n < cells.size())
+    {
+        cells.resize(n);
+    }
+
+    return cells;
 }

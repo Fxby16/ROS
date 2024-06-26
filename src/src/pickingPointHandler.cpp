@@ -7,6 +7,7 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 
 #include <pickingPoint.hpp>
+
 #include <timer.hpp>
 
 class PickingPointHandler : public rclcpp::Node
@@ -25,57 +26,106 @@ public:
     {
         // Initialize the image transport subscriber
         image_transport::ImageTransport it(shared_from_this());
-		m_Pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("pickingPoint/coordinates", 10);
-        m_Sub = it.subscribe("camera/image", 10, std::bind(&PickingPointHandler::ImageCallback, this, std::placeholders::_1));
+        m_Pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("pickingPoint/coordinates", 10);
+        m_SubMask = it.subscribe("camera/mask_image", 10, std::bind(&PickingPointHandler::ReceiveMask, this, std::placeholders::_1));
+        m_SubDepth = it.subscribe("camera/depth_image", 10, std::bind(&PickingPointHandler::ReceiveDepth, this, std::placeholders::_1));
+
+        //printf("Inizializato\n");
     }
 
-    void ImageCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg)
+    void processImage()
     {
-        try
-        {
-            // Convert ROS2 message to OpenCV image
-            cv::Mat image = cv_bridge::toCvShare(msg, "bgr8")->image;
+        if (!(m_DepthImage.Loaded && m_MaskImage.Loaded))
+            return;
 
-            // Start timer for performance measurement
-            Timer* timer = new Timer;
+        PickingPoint pp(m_MaskImage.Image, m_DepthImage.Image);
+        
+        //printf("Oggetto creato\n");
+        
+        PickingPointInfo pickingPointData = pp.Process();
 
-            // Find the picking point
-            PickingPoint pp(image);
-            PickingPointInfo pickingPointData = pp.Process();
+        //printf("Processato\n");
 
-            printf("%d %d %u %u %f %f\n", pickingPointData.point.x, pickingPointData.point.y, pickingPointData.opening[0], pickingPointData.opening[1], pickingPointData.angle[0], pickingPointData.angle[1]);
+        std_msgs::msg::Float64MultiArray array;
+        // Set up dimensions
+        array.layout.dim.push_back(std_msgs::msg::MultiArrayDimension());
+        array.layout.dim[0].size = 6;
+        array.layout.dim[0].stride = 6;
+        array.layout.dim[0].label = "pickingData";
+        // Assign the data
+        array.data.clear();
+        array.data.push_back(static_cast<double>(pickingPointData.point.x));
+        array.data.push_back(static_cast<double>(pickingPointData.point.y));
+        array.data.push_back(static_cast<double>(pickingPointData.opening[0]));
+        array.data.push_back(static_cast<double>(pickingPointData.angle[0]));
+        array.data.push_back(static_cast<double>(pickingPointData.opening[1]));
+        array.data.push_back(static_cast<double>(pickingPointData.angle[1]));
 
-            delete timer;
+        //printf("Creato array\n");
 
-			std_msgs::msg::Float64MultiArray array;
-			// Set up dimensions
-			array.layout.dim.push_back(std_msgs::msg::MultiArrayDimension());
-			array.layout.dim[0].size = 6;
-			array.layout.dim[0].stride = 6;
-			array.layout.dim[0].label = "pickingData";
-			// Assign the data
-			array.data.clear();
-			array.data.push_back(static_cast<double>(pickingPointData.point.x));
-			array.data.push_back(static_cast<double>(pickingPointData.point.y));
-            array.data.push_back(static_cast<double>(pickingPointData.opening[0]));
-            array.data.push_back(static_cast<double>(pickingPointData.angle[0]));
-            array.data.push_back(static_cast<double>(pickingPointData.opening[1]));
-            array.data.push_back(static_cast<double>(pickingPointData.angle[1]));
+        m_Pub->publish(array);
 
-            #ifdef DEBUG
-                RCLCPP_INFO(this->get_logger(), "Picking point: (%d, %d)", pickingPoint.x, pickingPoint.y);
-            #endif
-
-            m_Pub->publish(array);
-        }
-        catch(cv_bridge::Exception& e)
-        {	
-            RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
-        }
+        //printf("Pubblicato\n");
     }
+
+    void ReceiveDepth(const sensor_msgs::msg::Image::ConstSharedPtr &msg)
+    {
+        cv::Mat image = cv_bridge::toCvShare(msg, "32FC3")->image.clone();
+
+        //printf("Creata depth image\n");
+
+        // Print image information
+        RCLCPP_INFO(this->get_logger(), "Image size: %dx%d", image.cols, image.rows);
+        RCLCPP_INFO(this->get_logger(), "Image channels: %d", image.channels());
+
+        m_DepthImage.Load(image);
+
+        //printf("Caricata depth image\n");
+
+        processImage();
+    }
+
+    void ReceiveMask(const sensor_msgs::msg::Image::ConstSharedPtr &msg)
+    {
+        cv::Mat image = cv_bridge::toCvShare(msg, "bgr8")->image.clone();
+
+        //printf("Creata mask image\n");
+
+        // Print image information
+        RCLCPP_INFO(this->get_logger(), "Image size: %dx%d", image.cols, image.rows);
+        RCLCPP_INFO(this->get_logger(), "Image channels: %d", image.channels());
+
+        m_MaskImage.Load(image);
+
+        //printf("Caricata mask image\n");
+
+        processImage();
+    }
+
+private:
+
+    struct MatWrapped {
+        cv::Mat Image;
+        bool Loaded;
+
+        MatWrapped() : Image(), Loaded(false) {}
+
+        void Load(cv::Mat& img) {
+            Image = img;
+            Loaded = true;
+        }
+
+        void Unload() {
+            Loaded = false;
+        }
+    };
 
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_Pub;
-    image_transport::Subscriber m_Sub;
+    image_transport::Subscriber m_SubMask;
+    image_transport::Subscriber m_SubDepth;
+
+    MatWrapped m_DepthImage;
+    MatWrapped m_MaskImage;
 };
 
 int main(int argc, char *argv[])

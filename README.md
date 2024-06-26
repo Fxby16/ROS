@@ -1,6 +1,8 @@
 # ROS
 
 ## Build 
+Flags for OpenCV: `cmake -DWITH_OPENEXR=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPENCV_EXTRA_MODULES_PATH=../opencv_contrib-4.x/modules ../opencv-4.x`  
+  
 From the root of the repository run `colcon build`
 
 ## Execute
