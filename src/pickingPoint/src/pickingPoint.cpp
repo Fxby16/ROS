@@ -1,3 +1,4 @@
+
 #include <pickingPoint.hpp>
 #include <cstdio>
 #include <vector>
@@ -321,7 +322,7 @@ cv::Point PickingPoint::Raycast(cv::Point startingPoint, cv::Point direction) {
         if (color[0] == 0 && color[1] == 0 && color[2] == 0) {
             if(prev_color_black == false)
             {
-                savedPoint = currentPoint;
+                return currentPoint;
             }
             prev_color_black = true;
         }
