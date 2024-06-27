@@ -54,9 +54,8 @@ public:
     void SendImage()
     {
         // Load an image using OpenCV
-        //cv::Mat image = cv::imread(GetProjectRoot() + "/src/pickingPoint/assets/bin_mask_2.png", cv::IMREAD_COLOR);
-        
-        cv::Mat image = cv::imread("/mnt/574cdeb8-9b3d-49a4-aa16-95589af03bdf/ROS/src/pickingPoint/assets/bin_mask_2.png", cv::IMREAD_COLOR);
+        cv::Mat image = cv::imread(GetProjectRoot() + "/src/pickingPoint/assets/bin_mask_2.png", cv::IMREAD_COLOR);
+        //cv::Mat image = cv::imread("/mnt/574cdeb8-9b3d-49a4-aa16-95589af03bdf/ROS/src/pickingPoint/assets/bin_mask_2.png", cv::IMREAD_COLOR);
 
         if(image.empty())
         {
@@ -64,9 +63,8 @@ public:
             return;
         }
         
-        // cv::Mat depth = cv::imread(GetProjectRoot() + "/src/pickingPoint/assets/bin_mask_2.exr", cv::IMREAD_UNCHANGED);
-
-        cv::Mat depth = cv::imread("/mnt/574cdeb8-9b3d-49a4-aa16-95589af03bdf/ROS/src/pickingPoint/assets/bin_mask_2.exr", cv::IMREAD_UNCHANGED);
+        cv::Mat depth = cv::imread(GetProjectRoot() + "/src/pickingPoint/assets/bin_mask_2.exr", cv::IMREAD_UNCHANGED);
+        //cv::Mat depth = cv::imread("/mnt/574cdeb8-9b3d-49a4-aa16-95589af03bdf/ROS/src/pickingPoint/assets/bin_mask_2.exr", cv::IMREAD_UNCHANGED);
 
         if(depth.empty())
         {
