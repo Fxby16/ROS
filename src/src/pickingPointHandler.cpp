@@ -135,9 +135,7 @@ private:
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);
-    cv::namedWindow("view");
     rclcpp::spin(PickingPointHandler::Create());
-    cv::destroyWindow("view");
     rclcpp::shutdown();
     return 0;
 }
