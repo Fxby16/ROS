@@ -8,6 +8,7 @@ struct PickingPointInfo{
     cv::Point point;
     double opening[2];
     double angle[2];
+    double avgDepth;
 };
 
 class PickingPoint
@@ -30,10 +31,17 @@ public:
     void HandleCell(std::pair<double, cv::Rect>& cell, int row, int col);
     double GetDistance(int x1, int y1, int x2, int y2);
     unsigned int GetPixelCount(cv::Rect& rect, size_t row, size_t col);
-    void DrawHeatMap(const std::string& path);
     unsigned int GetMinDepth(cv::Rect& rect, size_t row, size_t col);
+    double GetAvgDepth(cv::Rect& rect);
 
-    cv::Point Raycast(cv::Point startingPoint, cv::Point direction);
+    /**
+     * \return the indices of the cell that contains the given point (y, x)
+    */
+    std::pair<size_t, size_t> GetCellFromPoint(cv::Point point, size_t cell_size);
+
+    std::vector<std::pair<size_t, size_t>> GetCellsFromCenter(std::pair<size_t, size_t> center, size_t cells_to_get);
+
+    cv::Point Raycast(cv::Point startingPoint, cv::Point direction, bool useDepth = false);
     cv::Point FindColor(cv::Scalar color, cv::Mat& image);
 
     std::vector<Cell> FindMinCell(unsigned int n);

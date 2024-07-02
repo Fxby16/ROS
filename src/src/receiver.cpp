@@ -20,6 +20,7 @@ private:
         RCLCPP_INFO(this->get_logger(), "Position: (%.2lf, %.2lf)", msg.data[0], msg.data[1]);
         RCLCPP_INFO(this->get_logger(), "1) Opening %.2lf, Angle %.2lf", msg.data[2], msg.data[3]);
         RCLCPP_INFO(this->get_logger(), "2) Opening %.2lf, Angle %.2lf", msg.data[4], msg.data[5]);
+        RCLCPP_INFO(this->get_logger(), "Object AVG Depth: %.2lf ", msg.data[6]);
     }
 
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr m_Sub;

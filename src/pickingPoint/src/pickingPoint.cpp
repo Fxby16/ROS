@@ -1,5 +1,6 @@
 
 #include <pickingPoint.hpp>
+#include <utils.hpp>
 #include <cstdio>
 #include <vector>
 #include <cmath>
@@ -72,27 +73,18 @@ PickingPointInfo PickingPoint::Process()
         angle += 90.0f;
         cv::swap(rect_size.width, rect_size.height);
     }
-    // get the rotation matrix
-    M = cv::getRotationMatrix2D(rect.center, angle, 1.0);
 
-    // perform the affine transformation
-    cv::warpAffine(m_Image, rotated, M, m_Image.size(), cv::INTER_NEAREST);
+    m_Cropped = cv::Mat(rect_size, m_Image.type());
+    getRotRectImg(rect, m_Image, m_Cropped);
 
-    // crop the resulting image
-    cv::getRectSubPix(rotated, rect_size, rect.center, m_Cropped);
-
-    cv::warpAffine(m_DepthMap, rotated2, M, m_DepthMap.size(), cv::INTER_NEAREST);
-
-    // crop the resulting image
-    cv::getRectSubPix(rotated2, rect_size, rect.center, m_DepthCropped);
+    m_DepthCropped = cv::Mat(rect_size, m_DepthMap.type());
+    getRotRectImg(rect, m_DepthMap, m_DepthCropped);
 
     if (m_Cropped.rows == 0 || m_Cropped.cols == 0)
-        return PickingPointInfo();
+        return {cv::Point(-1, -1), -1.0};
 
     // Extract cells
-    int cell_size = std::log10(m_Cropped.rows * m_Cropped.cols) * 2;
-
-    printf("Cell Size: %d\n", cell_size);
+    int cell_size = std::max((int) std::ceil(std::log10(m_Cropped.rows * m_Cropped.cols) * 2), 1);
 
     ExtractCells(cell_size, m_Cropped);
 
@@ -106,95 +98,104 @@ PickingPointInfo PickingPoint::Process()
     }
 
     //10 : 15 = cell_size : x
-    int cells_to_get = std::max((15 * cell_size) / 10, 1);
+    size_t cells_to_get = std::max((8 * cell_size) / 10, 1);
 
     // Finding the first 10 cells with the lowest score
-    std::vector<PickingPoint::Cell> min_cell_list = FindMinCell(cells_to_get);
-
-    cv::Rect temp_rect = m_Cells[min_cell_list[0].y][min_cell_list[0].x].second;
-    cv::Point temp = cv::Point(temp_rect.x + temp_rect.width / 2, temp_rect.y + temp_rect.height / 2);
-    
-    // Sorting the cells by the minimum depth, to find the highest point
-    std::sort(min_cell_list.begin(), min_cell_list.end(), [this](const struct Cell& a, const struct Cell& b) -> bool {
-        return GetMinDepth(m_Cells[a.y][a.x].second, a.y, a.x) < GetMinDepth(m_Cells[b.y][b.x].second, b.y, b.x);
-    });
-
-    DrawHeatMap(path); 
+    std::vector<PickingPoint::Cell> min_cell_list = FindMinCell(1);
 
     cv::Rect r = m_Cells[min_cell_list[0].y][min_cell_list[0].x].second;
-
+    
     cv::Point pickPoint = cv::Point(r.x + r.width / 2, r.y + r.height / 2);
 
-    cv::circle(m_Cropped, pickPoint, 2, cv::Scalar(0, 255, 0), -1);
+    //cv::circle(Output, pickPoint, 2, cv::Scalar(255, 255, 255), -1);
 
     cv::Point y0 = Raycast(pickPoint, cv::Point(0, 1)); // up
     cv::Point y1 = Raycast(pickPoint, cv::Point(0, -1)); // down
     cv::Point x0 = Raycast(pickPoint, cv::Point(1, 0)); // right
     cv::Point x1 = Raycast(pickPoint, cv::Point(-1, 0)); // left
 
+    //center the point on the shortest side
+    if(std::abs(y0.y - y1.y) > std::abs(x0.x - x1.x)){
+        pickPoint = cv::Point((x0.x + x1.x) / 2, pickPoint.y);
+    }else{
+        pickPoint = cv::Point(pickPoint.x, (y0.y + y1.y) / 2);
+    }
+
     unsigned int requiredOpening1; // opening for the shortest side
     unsigned int requiredOpening2; // opening for the longest side
     float requiredAngle1 = requiredAngle; // angle for the shortest opening
     float requiredAngle2 = requiredAngle; // angle for the longest opening
 
-    y0 = Raycast(pickPoint, cv::Point(0, 1)); // Sopra
-    y1 = Raycast(pickPoint, cv::Point(0, -1)); //sotto
-    x0 = Raycast(pickPoint, cv::Point(1, 0)); // destra
-    x1 = Raycast(pickPoint, cv::Point(-1, 0));    // Sinis
+    y0 = Raycast(pickPoint, cv::Point(0, 1), true); // Sopra
+    y1 = Raycast(pickPoint, cv::Point(0, -1), true); //sotto
+    x0 = Raycast(pickPoint, cv::Point(1, 0), true); // destra
+    x1 = Raycast(pickPoint, cv::Point(-1, 0), true); // sinistra
 
-    if (std::abs(y0.y - y1.y) > std::abs(x0.x - x1.x)) {
+    if(std::abs(y0.y - y1.y) > std::abs(x0.x - x1.x)){
         requiredOpening1 = std::abs(x0.x - x1.x) + 6;
         requiredOpening2 = std::abs(y0.y - y1.y) + 6;
         requiredAngle2 += 90;
-    } else {
+        pickPoint = cv::Point((x0.x + x1.x) / 2, pickPoint.y);
+    }else{
         requiredOpening1 = std::abs(y0.y - y1.y) + 6;
         requiredOpening2 = std::abs(x0.x - x1.x) + 6;
         requiredAngle1 += 90;
+        pickPoint = cv::Point(pickPoint.x, (y0.y + y1.y) / 2);
     }
+
+    //printf("Required Opening 1: %u Angle1: %f\nRequired Opening 2: %u Angle2: %f\n", requiredOpening1, requiredAngle1, requiredOpening2, requiredAngle2);
 
     cv::circle(m_Cropped, pickPoint, 1, cv::Scalar(0, 0, 255), -1);
 
-    cv::Mat M_inv, reverted, depth_reverted;
-    cv::Size original_size = m_Image.size();
+    cv::Mat dstDepth;
+    revertRotation(m_DepthCropped, dstDepth, m_Image.size(), rect, rect_size);
+    
+    cv::Mat dstImage;
+    revertRotation(m_Cropped, dstImage, m_Image.size(), rect, rect_size);
 
-    // Step 1: Create a new image of the original size
-    cv::Mat new_image = cv::Mat::zeros(original_size, m_Cropped.type());
-    cv::Mat new_image2 = cv::Mat::zeros(original_size, m_Cropped.type());
+    cv::Point newPickingPoint = FindColor(cv::Scalar(0, 0, 255), dstImage); //find the picking point on the original image
 
-    // Get the image size
-    int imgWidth = new_image.cols;
-    int imgHeight = new_image.rows;
+    //printf("New Picking Point: (%d, %d)\n", newPickingPoint.x, newPickingPoint.y);
 
-    // Calculate the ROI position and size
-    int yValue = std::max(std::min(static_cast<int>(rect.center.y - rect_size.height / 2.0f), imgHeight - rect_size.height), 0);
-    int xValue = std::max(std::min(static_cast<int>(rect.center.x - rect_size.width / 2.0f), imgWidth - rect_size.width), 0);
+    cv::circle(dstDepth, newPickingPoint, 1, cv::Scalar(0, 255, 0), -1);
+    size_t count = 0;
+    double avgDepth = 0.0;
 
-    // Step 2: Place m_Cropped in this new image at the position corresponding to the original rect
-    cv::Rect original_rect(xValue, yValue, rect_size.width, rect_size.height);
+    for(auto row : m_Cells)
+    {
+        for(auto cell : row)
+        {
+            double depth = GetAvgDepth(cell.second);
 
-    m_Cropped.copyTo(new_image(original_rect));
-
-    // Step 3: Compute the inverse of M
-    cv::invertAffineTransform(M, M_inv);
-
-    // Step 4: Apply cv::warpAffine with the inverted matrix
-    cv::warpAffine(new_image, reverted, M_inv, original_size, cv::INTER_NEAREST, 0, cv::Scalar(0));
-
-    // Step 5: If the width and height were swapped, swap them back
-    if (rect.angle < -45.0f) {
-        cv::swap(reverted.cols, reverted.rows);
+            if (depth <= 0) {
+                count++;
+                continue;
+            }
+            
+            avgDepth += depth;
+        }
     }
 
-    cv::Point newPickingPoint = FindColor(cv::Scalar(0, 0, 255), reverted);
+
+
+    //printf("[Prima] Value: %lf, avgDepth: %lf\n", (double) ((m_Cells.size() * m_Cells[0].size()) - count), avgDepth);
+
+    avgDepth /= (double) ((m_Cells.size() * m_Cells[0].size()) - count);
+
+    if (avgDepth <= 0 || avgDepth > 1000 || std::isnan(avgDepth) || std::isinf(avgDepth)) {
+        avgDepth = 500;
+    }
 
     PickingPointInfo info = {
         .point = newPickingPoint,
         .opening = {requiredOpening1, requiredOpening2},
-        .angle = {requiredAngle1, requiredAngle2}
+        .angle = {requiredAngle1, requiredAngle2},
+        .avgDepth = avgDepth
     };
 
     return info;
 }
+
 
 cv::Point PickingPoint::FindColor(cv::Scalar color, cv::Mat& image) 
 {
@@ -281,7 +282,7 @@ void PickingPoint::ExtractCells(size_t cell_size, cv::Mat img)
 std::pair<size_t, size_t> PickingPoint::FindMaxCell()
 {
     double min_value = std::numeric_limits<double>::min();
-    size_t x, y; 
+    size_t x = 0, y = 0; 
 
     for(size_t i = 0; i < m_Cells.size(); i++)
     {
@@ -299,10 +300,9 @@ std::pair<size_t, size_t> PickingPoint::FindMaxCell()
     return {y, x};
 }
 
-cv::Point PickingPoint::Raycast(cv::Point startingPoint, cv::Point direction) {
+cv::Point PickingPoint::Raycast(cv::Point startingPoint, cv::Point direction, bool useDepth) {
     cv::Point currentPoint = startingPoint;
     cv::Point savedPoint = startingPoint;
-
 
     bool prev_color_black;
     cv::Vec3b color = m_Cropped.at<cv::Vec3b>(currentPoint);
@@ -316,6 +316,7 @@ cv::Point PickingPoint::Raycast(cv::Point startingPoint, cv::Point direction) {
         prev_color_black = false;
     }
 
+    cv::Vec3f oldDepth = m_DepthCropped.at<cv::Vec3f>(currentPoint)[2];
     while (currentPoint.x >= 0 && currentPoint.x < m_Cropped.cols && currentPoint.y >= 0 && currentPoint.y < m_Cropped.rows) {
         color = m_Cropped.at<cv::Vec3b>(currentPoint);
 
@@ -331,6 +332,15 @@ cv::Point PickingPoint::Raycast(cv::Point startingPoint, cv::Point direction) {
             prev_color_black = false;
         }
 
+        if (useDepth) {
+            cv::Vec3f depth = m_DepthCropped.at<cv::Vec3f>(currentPoint)[2];
+            if (std::abs(depth[2] - oldDepth[2]) > 30) {
+                return savedPoint;
+            }
+
+            oldDepth = depth;
+        }
+
         currentPoint += direction;
     }
 
@@ -340,26 +350,6 @@ cv::Point PickingPoint::Raycast(cv::Point startingPoint, cv::Point direction) {
     
     return savedPoint;
 }
-
-void PickingPoint::DrawHeatMap(const std::string& path) {
-    m_HeatMap = m_Cropped.clone();
-
-    std::pair<size_t, size_t> max_cell = FindMaxCell();
-    auto cell = m_Cells[max_cell.first][max_cell.second];
-    double maxValue = cell.first;
-
-    // pixelValue : maxValue = x : 255
-    for(size_t i = 0; i < m_Cells.size(); i++)
-    {
-        for(size_t j = 0; j < m_Cells[i].size(); j++)
-        {
-            cv::rectangle(m_HeatMap, m_Cells[i][j].second, cv::Scalar(0, 0, (m_Cells[i][j].first * 255) / maxValue), -1);
-        }
-    }
-
-    //cv::imwrite(std::string("output/") + std::string("heatmap_") + path.substr(path.find_last_of("/") + 1), m_HeatMap);
-}
-
 
 // Non Ottimizzato: 4.572s
 // Ottimizzato: 2.514s
@@ -470,4 +460,70 @@ std::vector<PickingPoint::Cell> PickingPoint::FindMinCell(unsigned int n)
     }
 
     return cells;
+}
+
+std::pair<size_t, size_t> PickingPoint::GetCellFromPoint(cv::Point point, size_t cell_size)
+{
+    return {point.y / cell_size, point.x / cell_size};
+}
+
+std::vector<std::pair<size_t, size_t>> PickingPoint::GetCellsFromCenter(std::pair<size_t, size_t> center, size_t cells_to_get)
+{
+    int side_length = std::max(std::ceil(std::sqrt(cells_to_get)), 1.0);
+
+    if(side_length % 2 == 0)
+    {
+        side_length++;
+    }
+
+    int start_x, end_x, start_y, end_y;
+
+    start_x = std::max((int) center.second - side_length / 2, (int) 0);
+    end_x = std::min(start_x + side_length, (int) m_Cells[0].size());
+
+    start_y = std::max((int) center.first - side_length / 2, (int) 0);
+    end_y = std::min(start_y + side_length, (int) m_Cells.size());
+
+    std::vector<std::pair<size_t, size_t>> cells;
+
+    for(size_t i = start_y; i < end_y; i++)
+    {
+        for(size_t j = start_x; j < end_x; j++)
+        {
+            cells.push_back({i, j});
+        }
+    }
+
+    return cells;
+}
+
+double PickingPoint::GetAvgDepth(cv::Rect& rect)
+{
+    double sum = 0;
+    size_t count = 0;
+
+    for(int i = rect.y; i < rect.y + rect.height; i++)
+    {
+        for(int j = rect.x; j < rect.x + rect.width; j++)
+        {
+            if(m_DepthCropped.at<cv::Vec3f>(i, j)[2] < 260)
+            {
+                count++;
+                continue;
+            }
+
+            sum += m_DepthCropped.at<cv::Vec3f>(i, j)[2];
+        }
+    }
+
+    double avg = sum / (double) ((rect.width * rect.height) - count);
+
+    //printf("Sum: %lf, Count: %lu, Questo: %lf, Rst: %lf\n", sum, count, (double) ((rect.width * rect.height) - count), avg);
+
+    if (avg < 0 || std::isnan(avg)) {
+        //printf("Avg: Nan!\n");
+        return -1;
+    }
+
+    return avg;
 }

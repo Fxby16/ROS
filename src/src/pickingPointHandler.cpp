@@ -49,8 +49,8 @@ public:
         std_msgs::msg::Float64MultiArray array;
         // Set up dimensions
         array.layout.dim.push_back(std_msgs::msg::MultiArrayDimension());
-        array.layout.dim[0].size = 6;
-        array.layout.dim[0].stride = 6;
+        array.layout.dim[0].size = 7;
+        array.layout.dim[0].stride = 7;
         array.layout.dim[0].label = "pickingData";
         // Assign the data
         array.data.clear();
@@ -60,6 +60,7 @@ public:
         array.data.push_back(static_cast<double>(pickingPointData.angle[0]));
         array.data.push_back(static_cast<double>(pickingPointData.opening[1]));
         array.data.push_back(static_cast<double>(pickingPointData.angle[1]));
+        array.data.push_back(static_cast<double>(pickingPointData.avgDepth));
 
         //printf("Creato array\n");
 
