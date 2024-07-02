@@ -29,8 +29,6 @@ public:
         m_Pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("pickingPoint/coordinates", 10);
         m_SubMask = it.subscribe("camera/mask_image", 10, std::bind(&PickingPointHandler::ReceiveMask, this, std::placeholders::_1));
         m_SubDepth = it.subscribe("camera/depth_image", 10, std::bind(&PickingPointHandler::ReceiveDepth, this, std::placeholders::_1));
-
-        //printf("Inizializato\n");
     }
 
     void processImage()
@@ -135,7 +133,9 @@ private:
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(PickingPointHandler::Create());
+    auto node = PickingPointHandler::Create();
+    RCLCPP_INFO(node->get_logger(), "PickingPointHandler node has been started.");
+    rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;
 }

@@ -12,6 +12,8 @@ public:
     {
         m_Sub = this->create_subscription<std_msgs::msg::Float64MultiArray>(
             "pickingPoint/coordinates", 10, std::bind(&Receiver::TopicCallback, this, std::placeholders::_1));
+
+        RCLCPP_INFO(this->get_logger(), "Receiver node has been started.");
     }
 
 private:

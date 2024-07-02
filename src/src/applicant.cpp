@@ -105,7 +105,9 @@ public:
         }
 
         sensor_msgs::msg::Image::SharedPtr depth_msg = cv_bridge::CvImage(depth_header, "32FC3", depth).toImageMsg();
-    
+
+        RCLCPP_INFO(this->get_logger(), "Data Published!");
+
         // Publish the depth
         m_PubDepth.publish(depth_msg);
     }
