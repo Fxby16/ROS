@@ -67,6 +67,9 @@ public:
         m_Pub->publish(array);
 
         //printf("Pubblicato\n");
+
+        m_DepthImage.Unload();
+        m_MaskImage.Unload();
     }
 
     void ReceiveDepth(const sensor_msgs::msg::Image::ConstSharedPtr &msg)
