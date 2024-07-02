@@ -14,8 +14,8 @@ struct PickingPointInfo{
 class PickingPoint
 {
 public:
-    PickingPoint(const std::string& mask_path, const std::string& depth_path);
-    PickingPoint(cv::Mat& mask, cv::Mat& depth);
+    PickingPoint(const std::string& mask_path, const std::string& depth_path, const std::string& full_rgb_path);
+    PickingPoint(cv::Mat& mask, cv::Mat& depth, cv::Mat& full_rgb);
     ~PickingPoint() = default;
 
     struct Cell
@@ -54,6 +54,8 @@ private:
     cv::Mat m_DepthMap;
     cv::Mat m_DepthCropped;
     cv::Mat m_DepthCroppedNormalized;
+
+    cv::Mat m_FullRGB;
 
     std::vector<std::vector<std::pair<double, cv::Rect>>> m_Cells;
     std::vector<std::vector<unsigned int>> m_CellsCache;

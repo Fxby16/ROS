@@ -29,20 +29,16 @@ public:
         m_Pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("pickingPoint/coordinates", 10);
         m_SubMask = it.subscribe("camera/mask_image", 10, std::bind(&PickingPointHandler::ReceiveMask, this, std::placeholders::_1));
         m_SubDepth = it.subscribe("camera/depth_image", 10, std::bind(&PickingPointHandler::ReceiveDepth, this, std::placeholders::_1));
+        m_SubFullRGB = it.subscribe("camera/full_rgb_image", 10, std::bind(&PickingPointHandler::ReceiveFullRGB, this, std::placeholders::_1));
     }
 
     void processImage()
     {
-        if (!(m_DepthImage.Loaded && m_MaskImage.Loaded))
+        if (!(m_DepthImage.Loaded && m_MaskImage.Loaded && m_FullRGBImage.Loaded))
             return;
 
-        PickingPoint pp(m_MaskImage.Image, m_DepthImage.Image);
-        
-        //printf("Oggetto creato\n");
-        
+        PickingPoint pp(m_MaskImage.Image, m_DepthImage.Image, m_FullRGBImage.Image);
         PickingPointInfo pickingPointData = pp.Process();
-
-        //printf("Processato\n");
 
         std_msgs::msg::Float64MultiArray array;
         // Set up dimensions
@@ -60,11 +56,7 @@ public:
         array.data.push_back(static_cast<double>(pickingPointData.angle[1]));
         array.data.push_back(static_cast<double>(pickingPointData.avgDepth));
 
-        //printf("Creato array\n");
-
         m_Pub->publish(array);
-
-        //printf("Pubblicato\n");
 
         m_DepthImage.Unload();
         m_MaskImage.Unload();
@@ -74,15 +66,11 @@ public:
     {
         cv::Mat image = cv_bridge::toCvShare(msg, "32FC3")->image.clone();
 
-        //printf("Creata depth image\n");
-
         // Print image information
         RCLCPP_INFO(this->get_logger(), "Image size: %dx%d", image.cols, image.rows);
         RCLCPP_INFO(this->get_logger(), "Image channels: %d", image.channels());
 
         m_DepthImage.Load(image);
-
-        //printf("Caricata depth image\n");
 
         processImage();
     }
@@ -91,17 +79,24 @@ public:
     {
         cv::Mat image = cv_bridge::toCvShare(msg, "bgr8")->image.clone();
 
-        //printf("Creata mask image\n");
-
         // Print image information
         RCLCPP_INFO(this->get_logger(), "Image size: %dx%d", image.cols, image.rows);
         RCLCPP_INFO(this->get_logger(), "Image channels: %d", image.channels());
 
         m_MaskImage.Load(image);
 
-        //printf("Caricata mask image\n");
-
         processImage();
+    }
+
+    void ReceiveFullRGB(const sensor_msgs::msg::Image::ConstSharedPtr &msg)
+    {
+        cv::Mat image = cv_bridge::toCvShare(msg, "bgr8")->image.clone();
+
+        // Print image information
+        RCLCPP_INFO(this->get_logger(), "Image size: %dx%d", image.cols, image.rows);
+        RCLCPP_INFO(this->get_logger(), "Image channels: %d", image.channels());
+
+        m_FullRGBImage.Load(image);
     }
 
 private:
@@ -125,9 +120,11 @@ private:
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_Pub;
     image_transport::Subscriber m_SubMask;
     image_transport::Subscriber m_SubDepth;
+    image_transport::Subscriber m_SubFullRGB;
 
     MatWrapped m_DepthImage;
     MatWrapped m_MaskImage;
+    MatWrapped m_FullRGBImage;
 };
 
 int main(int argc, char *argv[])

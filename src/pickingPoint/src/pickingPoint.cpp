@@ -7,11 +7,12 @@
 #include <limits>
 #include <iostream>
 
-PickingPoint::PickingPoint(const std::string& path, const std::string& depth_path)
+PickingPoint::PickingPoint(const std::string& path, const std::string& depth_path, const std::string& full_rgb_path)
     : path(path)
 {
     m_Image = cv::imread(path, cv::IMREAD_COLOR);
     m_DepthMap = cv::imread(depth_path, cv::IMREAD_UNCHANGED);
+    m_FullRGB = cv::imread(full_rgb_path, cv::IMREAD_COLOR);
 
     if(m_Image.empty())
     {
@@ -24,12 +25,19 @@ PickingPoint::PickingPoint(const std::string& path, const std::string& depth_pat
         perror("No depth data\n");
         return;
     }
+
+    if(m_FullRGB.empty())
+    {
+        perror("No full rgb data\n");
+        return;
+    }
 }
 
-PickingPoint::PickingPoint(cv::Mat& image, cv::Mat& depth)
+PickingPoint::PickingPoint(cv::Mat& image, cv::Mat& depth, cv::Mat& full_rgb)
 {
     m_Image = image.clone();
     m_DepthMap = depth.clone();
+    m_FullRGB = full_rgb.clone();
 }
 
 PickingPointInfo PickingPoint::Process()
@@ -185,6 +193,11 @@ PickingPointInfo PickingPoint::Process()
     if (avgDepth <= 0 || avgDepth > 1000 || std::isnan(avgDepth) || std::isinf(avgDepth)) {
         avgDepth = 500;
     }
+
+    cv::circle(m_FullRGB, newPickingPoint, 1, cv::Scalar(0, 0, 255), -1);
+
+    cv::imshow("Full RGB", m_FullRGB);
+    cv::waitKey(0);
 
     PickingPointInfo info = {
         .point = newPickingPoint,
