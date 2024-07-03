@@ -115,23 +115,23 @@ PickingPointInfo PickingPoint::Process()
     //center the point in the cell
     cv::Point pickPoint = cv::Point(r.x + r.width / 2, r.y + r.height / 2);
 
-    //raycast without considering the depth
-    cv::Point y0 = Raycast(pickPoint, cv::Point(0, 1)); // up
-    cv::Point y1 = Raycast(pickPoint, cv::Point(0, -1)); // down
-    cv::Point x0 = Raycast(pickPoint, cv::Point(1, 0)); // right
-    cv::Point x1 = Raycast(pickPoint, cv::Point(-1, 0)); // left
+    unsigned int requiredOpening1; // opening for the shortest side
+    unsigned int requiredOpening2; // opening for the longest side
+    float requiredAngle1 = requiredAngle; // angle for the shortest opening
+    float requiredAngle2 = requiredAngle; // angle for the longest opening
 
-    //center the point on the shortest side
+    //raycast considering the depth
+    cv::Point y0 = Raycast(pickPoint, cv::Point(0, 1), true); // Sopra
+    cv::Point y1 = Raycast(pickPoint, cv::Point(0, -1), true); //sotto
+    cv::Point x0 = Raycast(pickPoint, cv::Point(1, 0), true); // destra
+    cv::Point x1 = Raycast(pickPoint, cv::Point(-1, 0), true); // sinistra
+
+    //center the point on the shortest side, find the required opening and angle
     if(std::abs(y0.y - y1.y) > std::abs(x0.x - x1.x)){
         pickPoint = cv::Point((x0.x + x1.x) / 2, pickPoint.y);
     }else{
         pickPoint = cv::Point(pickPoint.x, (y0.y + y1.y) / 2);
     }
-
-    unsigned int requiredOpening1; // opening for the shortest side
-    unsigned int requiredOpening2; // opening for the longest side
-    float requiredAngle1 = requiredAngle; // angle for the shortest opening
-    float requiredAngle2 = requiredAngle; // angle for the longest opening
 
     //raycast considering the depth
     y0 = Raycast(pickPoint, cv::Point(0, 1), true); // Sopra
@@ -353,7 +353,7 @@ cv::Point PickingPoint::Raycast(cv::Point startingPoint, cv::Point direction, bo
 
         if (useDepth) {
             cv::Vec3f depth = m_DepthCropped.at<cv::Vec3f>(currentPoint)[2];
-            if (std::abs(depth[2] - oldDepth[2]) > 30) {
+            if (std::abs(depth[2] - oldDepth[2]) > 10) {
                 return savedPoint;
             }
 
@@ -411,7 +411,7 @@ unsigned int PickingPoint::GetPixelCount(cv::Rect& rect, size_t row, size_t col)
         for(int j = rect.x; j < rect.x + rect.width; j++)
         {
             cv::Vec3b color = m_Cropped.at<cv::Vec3b>(i, j);
-            if(color[0] != 0 && color[1] != 0 && color[2] != 0)
+            if(color[0] != 0 || color[1] != 0 || color[2] != 0)
             {
                 count++;
             }
