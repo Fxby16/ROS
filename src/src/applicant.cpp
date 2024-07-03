@@ -116,6 +116,13 @@ public:
                 depth_header.stamp = this->now();
                 sensor_msgs::msg::Image::SharedPtr depth_msg = cv_bridge::CvImage(depth_header, "32FC3", depth).toImageMsg();
                 m_PubDepth.publish(depth_msg);
+
+                printf("Press any key to continue (q to quit) ...");
+                char ch = getchar();
+                if(ch == 'q')
+                {
+                    return;
+                }
             }
         }
     }
