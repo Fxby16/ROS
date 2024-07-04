@@ -321,8 +321,26 @@ std::pair<size_t, size_t> PickingPoint::FindMaxCell()
 
 cv::Point PickingPoint::Raycast(cv::Point startingPoint, cv::Point direction, bool useDepth) {
     cv::Point currentPoint = startingPoint;
-    cv::Point savedPoint = startingPoint;
 
+    bool exited = false;
+
+    while(m_Cropped.at<cv::Vec3b>(startingPoint)[0] == 0 && m_Cropped.at<cv::Vec3b>(startingPoint)[1] == 0 && m_Cropped.at<cv::Vec3b>(startingPoint)[2] == 0)
+    {
+        startingPoint += direction;
+
+        if(startingPoint.x < 0 || startingPoint.x >= m_Cropped.cols || startingPoint.y < 0 || startingPoint.y >= m_Cropped.rows)
+        {
+            exited = true;
+            break;
+        }
+    }
+
+    if(!exited)
+    {
+        currentPoint = startingPoint;
+    }
+
+    cv::Point savedPoint = currentPoint;
     bool prev_color_black;
     cv::Vec3b color = m_Cropped.at<cv::Vec3b>(currentPoint);
 
